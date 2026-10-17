@@ -68,6 +68,10 @@ the console (or on the screen) and the command of the first menu entry will
 be called immediately. If delay is less then 0, bootmenu will be shown and
 autoboot will be disabled.
 
+The environment variable ``bootmenu_autoboot`` specifies a command to execute
+when the first menu entry starts automatically upon timeout expiry or with delay
+0. Selecting the first entry manually executes the command defined by that entry.
+
 Bootmenu always adds menu entry "U-Boot console" at the end of all menu
 entries specified by environment variables. When selecting this entry
 the bootmenu terminates and the usual U-Boot command prompt is presented

@@ -1659,7 +1659,10 @@ void handle_pxe_menu(struct pxe_context *ctx, struct pxe_menu *cfg)
 	if (!m)
 		return;
 
-	err = menu_get_choice(m, &choice);
+	if (IS_ENABLED(CONFIG_PXE_MENU_KEYBOARD))
+		err = menu_get_choice_with_keys(m, &choice);
+	else
+		err = menu_get_choice(m, &choice);
 	menu_destroy(m);
 
 	/*
@@ -1732,8 +1735,10 @@ int pxe_process(struct pxe_context *ctx, ulong pxefile_addr_r, bool prompt)
 		return 1;
 	}
 
-	if (prompt)
+	if (prompt) {
 		cfg->prompt = 1;
+		cfg->timeout = 0;
+	}
 
 	handle_pxe_menu(ctx, cfg);
 

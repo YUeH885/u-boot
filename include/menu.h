@@ -22,6 +22,16 @@ int menu_destroy(struct menu *m);
 int menu_default_choice(struct menu *m, void **choice);
 
 /**
+ * menu_get_choice_with_keys() - Select an item using arrow and enter keys
+ *
+ * Adds a return entry which exits the menu without selecting an item.
+ * @m: Menu to display
+ * @choice: Selected item's data
+ * Return: 1 on selection, -EINTR on return, or a negative error code
+ */
+int menu_get_choice_with_keys(struct menu *m, void **choice);
+
+/**
  * menu_show() Show a boot menu
  *
  * This shows a menu and lets the user select an option. The menu is defined by

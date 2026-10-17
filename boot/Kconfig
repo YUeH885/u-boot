@@ -449,6 +449,13 @@ config PXE_UTILS
 	help
 	  Utilities for parsing PXE file formats.
 
+config PXE_MENU_KEYBOARD
+	bool "Navigate PXE and extlinux menus with arrow keys"
+	depends on PXE_UTILS
+	help
+	  Use arrow keys and Enter to select a boot label, with a return entry
+	  to leave the menu. Supports keyboards and button keyboard devices.
+
 config BOOT_DEFAULTS_FEATURES
 	bool
 	select SUPPORT_RAW_INITRD
