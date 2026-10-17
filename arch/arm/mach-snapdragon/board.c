@@ -350,15 +350,25 @@ static const char *get_cmdline(void)
 {
 	ofnode node;
 	static const char *cmdline = NULL;
+	void *ext_fdt;
+	int offset;
 
 	if (cmdline)
 		return cmdline;
 
 	node = ofnode_path("/chosen");
-	if (!ofnode_valid(node))
-		return NULL;
+	if (ofnode_valid(node)) {
+		cmdline = ofnode_read_string(node, "bootargs");
+		if (cmdline)
+			return cmdline;
+	}
 
-	cmdline = ofnode_read_string(node, "bootargs");
+	ext_fdt = (void *)get_prev_bl_fdt_addr();
+	if (ext_fdt && !fdt_check_header(ext_fdt)) {
+		offset = fdt_path_offset(ext_fdt, "/chosen");
+		if (offset >= 0)
+			cmdline = fdt_getprop(ext_fdt, offset, "bootargs", NULL);
+	}
 
 	return cmdline;
 }
