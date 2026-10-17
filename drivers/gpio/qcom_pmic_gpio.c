@@ -37,8 +37,8 @@
 #define REG_SUBTYPE_GPIO_LV_VIN2          0x12
 #define REG_SUBTYPE_GPIO_MV_VIN3          0x13
 
-#define REG_STATUS             0x08
-#define REG_STATUS_VAL_MASK    0x1
+#define REG_RT_STS             0x10
+#define REG_RT_STS_VAL_MASK    0x1
 
 /* MODE_CTL */
 #define REG_CTL		0x40
@@ -56,7 +56,9 @@
 #define REG_DIG_VIN_VIN0       0
 
 #define REG_DIG_PULL_CTL       0x42
-#define REG_DIG_PULL_NO_PU     0x5
+#define REG_DIG_PULL_UP_30     0
+#define REG_DIG_PULL_DOWN_10   4
+#define REG_DIG_PULL_NO_PU     5
 
 #define REG_LV_MV_OUTPUT_CTL	0x44
 #define REG_LV_MV_OUTPUT_CTL_MASK	0x80
@@ -112,12 +114,18 @@ static int _qcom_gpio_set_direction(struct udevice *dev, u32 offset, bool input,
 	return 0;
 }
 
-static int qcom_gpio_set_direction(struct udevice *dev, unsigned int offset,
-				   bool input, int value)
+static int qcom_gpio_set_flags(struct udevice *dev, unsigned int offset,
+			       ulong flags)
 {
 	struct qcom_pmic_gpio_data *plat = dev_get_plat(dev);
 	uint32_t gpio_base = plat->pid + REG_OFFSET(offset);
+	bool input = !(flags & GPIOD_IS_OUT);
+	int value = !!(flags & GPIOD_IS_OUT_ACTIVE);
+	u8 pull = REG_DIG_PULL_NO_PU;
 	int ret = 0;
+
+	if (offset >= plat->pin_count)
+		return -EINVAL;
 
 	/* Disable the GPIO */
 	ret = pmic_clrsetbits(dev->parent, gpio_base + REG_EN_CTL,
@@ -125,17 +133,22 @@ static int qcom_gpio_set_direction(struct udevice *dev, unsigned int offset,
 	if (ret < 0)
 		return ret;
 
-	_qcom_gpio_set_direction(dev, offset, input, value);
+	ret = _qcom_gpio_set_direction(dev, offset, input, value);
+	if (ret < 0)
+		return ret;
 
-	/* Set the right pull (no pull) */
-	ret = pmic_reg_write(plat->pmic, gpio_base + REG_DIG_PULL_CTL,
-			     REG_DIG_PULL_NO_PU);
+	if (flags & GPIOD_PULL_UP)
+		pull = REG_DIG_PULL_UP_30;
+	else if (flags & GPIOD_PULL_DOWN)
+		pull = REG_DIG_PULL_DOWN_10;
+
+	ret = pmic_reg_write(plat->pmic, gpio_base + REG_DIG_PULL_CTL, pull);
 	if (ret < 0)
 		return ret;
 
 	/* Configure output pin drivers if needed */
 	if (!input) {
-		/* Select the VIN - VIN0, pin is input so it doesn't matter */
+		/* Select the VIN - VIN0 */
 		ret = pmic_reg_write(plat->pmic, gpio_base + REG_DIG_VIN_CTL,
 				     REG_DIG_VIN_VIN0);
 		if (ret < 0)
@@ -156,13 +169,17 @@ static int qcom_gpio_set_direction(struct udevice *dev, unsigned int offset,
 
 static int qcom_gpio_direction_input(struct udevice *dev, unsigned offset)
 {
-	return qcom_gpio_set_direction(dev, offset, true, 0);
+	return qcom_gpio_set_flags(dev, offset, GPIOD_IS_IN);
 }
 
 static int qcom_gpio_direction_output(struct udevice *dev, unsigned offset,
 				      int value)
 {
-	return qcom_gpio_set_direction(dev, offset, false, value);
+	ulong flags = GPIOD_IS_OUT;
+
+	if (value)
+		flags |= GPIOD_IS_OUT_ACTIVE;
+	return qcom_gpio_set_flags(dev, offset, flags);
 }
 
 static int qcom_gpio_get_function(struct udevice *dev, unsigned offset)
@@ -204,11 +221,11 @@ static int qcom_gpio_get_value(struct udevice *dev, unsigned offset)
 	uint32_t gpio_base = plat->pid + REG_OFFSET(offset);
 	int reg;
 
-	reg = pmic_reg_read(plat->pmic, gpio_base + REG_STATUS);
+	reg = pmic_reg_read(plat->pmic, gpio_base + REG_RT_STS);
 	if (reg < 0)
 		return reg;
 
-	return !!(reg & REG_STATUS_VAL_MASK);
+	return !!(reg & REG_RT_STS_VAL_MASK);
 }
 
 static int qcom_gpio_set_value(struct udevice *dev, unsigned offset,
@@ -254,6 +271,7 @@ static const struct dm_gpio_ops qcom_gpio_ops = {
 	.direction_output	= qcom_gpio_direction_output,
 	.get_value		= qcom_gpio_get_value,
 	.set_value		= qcom_gpio_set_value,
+	.set_flags		= qcom_gpio_set_flags,
 	.get_function		= qcom_gpio_get_function,
 	.xlate			= qcom_gpio_xlate,
 };
