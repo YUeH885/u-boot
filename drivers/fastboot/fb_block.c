@@ -129,12 +129,13 @@ int fastboot_block_get_part_info(const char *part_name,
 				 struct disk_partition *part_info,
 				 char *response)
 {
-	int ret;
+	int ret = -ENOENT;
 	const char *interface = config_opt_enabled(CONFIG_FASTBOOT_FLASH_BLOCK,
 						   CONFIG_FASTBOOT_FLASH_BLOCK_INTERFACE_NAME,
 						   NULL);
 	const int device = config_opt_enabled(CONFIG_FASTBOOT_FLASH_BLOCK,
 					      CONFIG_FASTBOOT_FLASH_BLOCK_DEVICE_ID, -1);
+	int dev;
 
 	if (!part_name || !strcmp(part_name, "")) {
 		fastboot_fail("partition not given", response);
@@ -145,16 +146,28 @@ int fastboot_block_get_part_info(const char *part_name,
 		return -EINVAL;
 	}
 
-	*dev_desc = blk_get_dev(interface, device);
-	if (!dev_desc) {
-		fastboot_fail("no such device", response);
-		return -ENODEV;
+	if (device >= 0) {
+		*dev_desc = blk_get_dev(interface, device);
+		if (*dev_desc) {
+			ret = part_get_info_by_name(*dev_desc, part_name, part_info);
+			if (ret >= 0)
+				return ret;
+		}
 	}
 
-	ret = part_get_info_by_name(*dev_desc, part_name, part_info);
-	if (ret < 0)
-		fastboot_fail("failed to get partition info", response);
+	for (dev = 0; ; dev++) {
+		if (dev == device)
+			continue;
+		*dev_desc = blk_get_dev(interface, dev);
+		if (!*dev_desc)
+			break;
 
+		ret = part_get_info_by_name(*dev_desc, part_name, part_info);
+		if (ret >= 0)
+			return ret;
+	}
+
+	fastboot_fail("failed to get partition info", response);
 	return ret;
 }
 
