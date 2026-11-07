@@ -14,10 +14,11 @@
 
 #include "pinctrl-qcom.h"
 
-#define WEST	0x100000
-#define EAST	0x500000
-#define NORTH	0x900000
-#define SOUTH	0xd00000
+/* The upstream DT's first resource is the west tile at 0x03100000. */
+#define WEST	0x000000
+#define EAST	0x400000
+#define NORTH	0x800000
+#define SOUTH	0xc00000
 
 #define MAX_PIN_NAME_LEN 32
 static char pin_name[MAX_PIN_NAME_LEN] __section(".data");
