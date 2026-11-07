@@ -254,7 +254,7 @@ void pxe_destroy_ctx(struct pxe_context *ctx);
  *
  * @ctx: PXE context created with pxe_setup_ctx()
  * @pxefile_addr_r: Address to load file
- * @prompt: Force a prompt for the user
+ * @prompt: Force a prompt for the user without a timeout
  */
 int pxe_process(struct pxe_context *ctx, ulong pxefile_addr_r, bool prompt);
 

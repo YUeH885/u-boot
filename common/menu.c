@@ -291,6 +291,96 @@ int menu_get_choice(struct menu *m, void **choice)
 	return menu_interactive_choice(m, choice);
 }
 
+int menu_get_choice_with_keys(struct menu *m, void **choice)
+{
+	struct bootmenu_data nav = {};
+	struct cli_ch_state cch;
+	struct menu_item *item;
+	enum bootmenu_key key;
+	int i, active;
+	bool redraw = true;
+
+	if (!m || !choice)
+		return -EINVAL;
+	if (!m->item_cnt)
+		return -ENOENT;
+	if (!m->prompt)
+		return menu_default_choice(m, choice);
+
+	nav.count = m->item_cnt + 1;
+	nav.delay = m->timeout ? m->timeout : -1;
+	i = 0;
+	list_for_each_entry(item, &m->items, list) {
+		if (item == m->default_item)
+			nav.active = i;
+		i++;
+	}
+	cli_ch_init(&cch);
+	puts(ANSI_CURSOR_HIDE);
+	for (;;) {
+		if (redraw) {
+			puts(ANSI_CLEAR_CONSOLE);
+			printf(ANSI_CURSOR_POSITION, 2, 3);
+			puts(m->title ? m->title : "Boot menu");
+			i = 0;
+			list_for_each_entry(item, &m->items, list) {
+				printf(ANSI_CURSOR_POSITION, i + 4, 3);
+				if (i == nav.active)
+					puts(ANSI_COLOR_REVERSE);
+				menu_item_print(m, item, NULL);
+				puts(ANSI_COLOR_RESET);
+				i++;
+			}
+			printf(ANSI_CURSOR_POSITION, i + 4, 3);
+			if (i == nav.active)
+				puts(ANSI_COLOR_REVERSE);
+			puts("0: Return to main menu" ANSI_COLOR_RESET);
+			printf(ANSI_CURSOR_POSITION, nav.count + 6, 3);
+			puts("Up/Down: select, Enter: boot");
+		}
+
+		active = nav.active;
+		key = nav.delay >= 0 ? bootmenu_autoboot_loop(&nav, &cch) :
+			bootmenu_loop(&nav, &cch);
+		switch (key) {
+		case BKEY_UP:
+			if (nav.active > 0)
+				nav.active--;
+			break;
+		case BKEY_DOWN:
+			if (nav.active < nav.count - 1)
+				nav.active++;
+			break;
+		case BKEY_SHORTCUT:
+			if (cch.shortcut_key >= nav.count - 1)
+				break;
+			nav.active = cch.shortcut_key < 0 ? nav.count - 1 :
+				cch.shortcut_key;
+			fallthrough;
+		case BKEY_SELECT:
+			if (nav.active == nav.count - 1)
+				goto out;
+			i = 0;
+			list_for_each_entry(item, &m->items, list) {
+				if (i++ == nav.active) {
+					*choice = item->data;
+					puts(ANSI_CURSOR_SHOW "\n");
+					return 1;
+				}
+			}
+			break;
+		case BKEY_QUIT:
+			goto out;
+		default:
+			break;
+		}
+		redraw = active != nav.active;
+	}
+out:
+	puts(ANSI_CURSOR_SHOW "\n");
+	return -EINTR;
+}
+
 /*
  * menu_item_add() - Adds or replaces a menu item. Note that this replaces the
  * data of an item if it already exists, but doesn't change the order of the

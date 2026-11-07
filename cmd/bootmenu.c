@@ -537,12 +537,18 @@ static enum bootmenu_ret bootmenu_show(int uefi, int delay)
 	struct bootmenu_data *bootmenu;
 	efi_status_t efi_ret = EFI_SUCCESS;
 	char *option, *sep;
+	const char *autoboot = env_get("bootmenu_autoboot");
 
 	if (IS_ENABLED(CONFIG_CMD_BOOTEFI_BOOTMGR) && uefi)
 		handle_uefi_bootnext();
 
 	/* If delay is 0 do not create menu, just run first entry */
 	if (delay == 0) {
+		if (autoboot) {
+			cmd_ret = run_command(autoboot, 0);
+			return cmd_ret == CMD_RET_SUCCESS ?
+				BOOTMENU_RET_SUCCESS : BOOTMENU_RET_FAIL;
+		}
 		option = bootmenu_getoption(0);
 		if (!option) {
 			puts("bootmenu option 0 was not found\n");
@@ -586,7 +592,10 @@ static enum bootmenu_ret bootmenu_show(int uefi, int delay)
 	if (menu_get_choice(menu, &choice) == 1) {
 		iter = choice;
 		title = strdup(iter->title);
-		command = strdup(iter->command);
+		if (!bootmenu->delay && !iter->num && autoboot)
+			command = strdup(autoboot);
+		else
+			command = strdup(iter->command);
 
 		/* last entry exits bootmenu */
 		if (iter->num == iter->menu->count - 1) {

@@ -129,6 +129,7 @@ static int do_sysboot(struct cmd_tbl *cmdtp, int flag, int argc,
 U_BOOT_CMD(sysboot, 7, 1, do_sysboot,
 	   "command to get and boot from syslinux files",
 	   "[-p] <interface> <dev[:part]> <ext2|fat|any> [addr] [filename]\n"
+	   "    -p - show the boot menu without a timeout\n"
 	   "    - load and parse syslinux menu file 'filename' from ext2, fat\n"
 	   "      or any filesystem on 'dev' on 'interface' to address 'addr'"
 );
