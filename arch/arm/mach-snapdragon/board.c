@@ -523,7 +523,7 @@ void __weak qcom_late_init(void)
 int board_late_init(void)
 {
 	u32 status = 0, fdt_status = 0;
-	phys_addr_t addr;
+	phys_addr_t addr, fdt_addr;
 	struct fdt_header *fdt_blob = (struct fdt_header *)gd->fdt_blob;
 
 	/* We need to be fairly conservative here as we support boards with just 1G of TOTAL RAM */
@@ -552,8 +552,8 @@ int board_late_init(void)
 		status |= env_set_hex("loadaddr", addr);
 	}
 
-	fdt_status |= !lmb_alloc(SZ_2M, &addr) ?
-		env_set_hex("fdt_addr_r", addr) : 1;
+	fdt_status |= !lmb_alloc(SZ_2M, &fdt_addr) ?
+		env_set_hex("fdt_addr_r", fdt_addr) : 1;
 
 	if (IS_ENABLED(CONFIG_OF_LIBFDT_OVERLAY)) {
 		status |= !lmb_alloc(SZ_1M, &addr) ?
@@ -568,7 +568,7 @@ int board_late_init(void)
 		log_warning("%s: Failed to reserve memory for copying FDT\n",
 			    __func__);
 	else
-		memcpy((void *)addr, (void *)gd->fdt_blob,
+		memcpy((void *)fdt_addr, (void *)gd->fdt_blob,
 		       fdt32_to_cpu(fdt_blob->totalsize));
 
 	configure_env();
