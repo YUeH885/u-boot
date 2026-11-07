@@ -22,3 +22,11 @@ QUALCOMM DRAGONWING QCS9100
 M:	Varadarajan Narayanan <quic_varada@quicinc.com>
 S:	Maintained
 N:	qcs9100
+
+LG G8 THINQ (LM-G820N)
+M:	yuzu <yuzu23234@gmail.com>
+S:	Maintained
+F:	arch/arm/dts/sm8150-lg-alphaplus-u-boot.dtsi
+F:	board/qualcomm/lm-g820n.env
+F:	configs/lmg820n_defconfig
+F:	dts/upstream/src/arm64/qcom/sm8150-lg-alphaplus.dts
