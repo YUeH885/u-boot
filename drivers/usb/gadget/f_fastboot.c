@@ -326,6 +326,10 @@ static int fastboot_set_alt(struct usb_function *f,
 	      __func__, f->name, interface, alt);
 
 	d = fb_ep_desc(gadget, &fs_ep_out, &hs_ep_out, &ss_ep_out);
+	if (gadget_is_superspeed(gadget) && gadget->speed >= USB_SPEED_SUPER)
+		f_fb->out_ep->comp_desc = &fb_ss_bulk_comp_desc;
+	else
+		f_fb->out_ep->comp_desc = NULL;
 	ret = usb_ep_enable(f_fb->out_ep, d);
 	if (ret) {
 		puts("failed to enable out ep\n");
@@ -341,6 +345,10 @@ static int fastboot_set_alt(struct usb_function *f,
 	f_fb->out_req->complete = rx_handler_command;
 
 	d = fb_ep_desc(gadget, &fs_ep_in, &hs_ep_in, &ss_ep_in);
+	if (gadget_is_superspeed(gadget) && gadget->speed >= USB_SPEED_SUPER)
+		f_fb->in_ep->comp_desc = &fb_ss_bulk_comp_desc;
+	else
+		f_fb->in_ep->comp_desc = NULL;
 	ret = usb_ep_enable(f_fb->in_ep, d);
 	if (ret) {
 		puts("failed to enable in ep\n");

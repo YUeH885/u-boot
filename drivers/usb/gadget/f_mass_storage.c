@@ -2226,14 +2226,26 @@ reset:
 
 	/* Enable the endpoints */
 	d = fsg_ep_desc(common->gadget,
-			&fsg_fs_bulk_in_desc, &fsg_hs_bulk_in_desc);
+			&fsg_fs_bulk_in_desc, &fsg_hs_bulk_in_desc,
+			&fsg_ss_bulk_in_desc);
+	if (gadget_is_superspeed(common->gadget) &&
+	    common->gadget->speed >= USB_SPEED_SUPER)
+		fsg->bulk_in->comp_desc = &fsg_ss_bulk_in_comp_desc;
+	else
+		fsg->bulk_in->comp_desc = NULL;
 	rc = enable_endpoint(common, fsg->bulk_in, d);
 	if (rc)
 		goto reset;
 	fsg->bulk_in_enabled = 1;
 
 	d = fsg_ep_desc(common->gadget,
-			&fsg_fs_bulk_out_desc, &fsg_hs_bulk_out_desc);
+			&fsg_fs_bulk_out_desc, &fsg_hs_bulk_out_desc,
+			&fsg_ss_bulk_out_desc);
+	if (gadget_is_superspeed(common->gadget) &&
+	    common->gadget->speed >= USB_SPEED_SUPER)
+		fsg->bulk_out->comp_desc = &fsg_ss_bulk_out_comp_desc;
+	else
+		fsg->bulk_out->comp_desc = NULL;
 	rc = enable_endpoint(common, fsg->bulk_out, d);
 	if (rc)
 		goto reset;
@@ -2654,6 +2666,7 @@ static void fsg_unbind(struct usb_configuration *c, struct usb_function *f)
 	fsg_common_release(fsg->common);
 	free(fsg->function.descriptors);
 	free(fsg->function.hs_descriptors);
+	free(fsg->function.ss_descriptors);
 	kfree(fsg);
 }
 
@@ -2705,6 +2718,19 @@ static int fsg_bind(struct usb_configuration *c, struct usb_function *f)
 			fsg_fs_bulk_out_desc.bEndpointAddress;
 		f->hs_descriptors = usb_copy_descriptors(fsg_hs_function);
 		if (unlikely(!f->hs_descriptors)) {
+			free(f->descriptors);
+			return -ENOMEM;
+		}
+	}
+
+	if (gadget_is_superspeed(gadget)) {
+		fsg_ss_bulk_in_desc.bEndpointAddress =
+			fsg_fs_bulk_in_desc.bEndpointAddress;
+		fsg_ss_bulk_out_desc.bEndpointAddress =
+			fsg_fs_bulk_out_desc.bEndpointAddress;
+		f->ss_descriptors = usb_copy_descriptors(fsg_ss_function);
+		if (unlikely(!f->ss_descriptors)) {
+			free(f->hs_descriptors);
 			free(f->descriptors);
 			return -ENOMEM;
 		}

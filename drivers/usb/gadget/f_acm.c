@@ -24,7 +24,7 @@
 #include <linux/usb/composite.h>
 #include <linux/usb/cdc.h>
 
-#define REQ_SIZE_MAX	512
+#define REQ_SIZE_MAX	1024
 
 struct f_acm {
 	int ctrl_id;
@@ -39,6 +39,7 @@ struct f_acm {
 
 	bool connected;
 	bool tx_on;
+	bool in_tx;
 
 	circbuf_t rx_buf;
 	circbuf_t tx_buf;
@@ -196,10 +197,55 @@ static struct usb_descriptor_header *acm_hs_function[] = {
 	NULL,
 };
 
+static struct usb_endpoint_descriptor acm_ss_in_desc = {
+	.bLength		= USB_DT_ENDPOINT_SIZE,
+	.bDescriptorType	= USB_DT_ENDPOINT,
+	.bmAttributes		= USB_ENDPOINT_XFER_BULK,
+	.wMaxPacketSize		= cpu_to_le16(1024),
+};
+
+static struct usb_endpoint_descriptor acm_ss_out_desc = {
+	.bLength		= USB_DT_ENDPOINT_SIZE,
+	.bDescriptorType	= USB_DT_ENDPOINT,
+	.bmAttributes		= USB_ENDPOINT_XFER_BULK,
+	.wMaxPacketSize		= cpu_to_le16(1024),
+};
+
+static struct usb_ss_ep_comp_descriptor acm_ss_bulk_comp_desc = {
+	.bLength =		sizeof(acm_ss_bulk_comp_desc),
+	.bDescriptorType =	USB_DT_SS_ENDPOINT_COMP,
+};
+
+static struct usb_ss_ep_comp_descriptor acm_ss_notify_comp_desc = {
+	.bLength =		sizeof(acm_ss_notify_comp_desc),
+	.bDescriptorType =	USB_DT_SS_ENDPOINT_COMP,
+	.wBytesPerInterval =	cpu_to_le16(64),
+};
+
+static struct usb_descriptor_header *acm_ss_function[] = {
+	(struct usb_descriptor_header *)&acm_iad_descriptor,
+	(struct usb_descriptor_header *)&acm_control_intf_desc,
+	(struct usb_descriptor_header *)&acm_header_desc,
+	(struct usb_descriptor_header *)&acm_call_mgmt_desc,
+	(struct usb_descriptor_header *)&acm_desc,
+	(struct usb_descriptor_header *)&acm_union_desc,
+	(struct usb_descriptor_header *)&acm_hs_notify_desc,
+	(struct usb_descriptor_header *)&acm_ss_notify_comp_desc,
+	(struct usb_descriptor_header *)&acm_data_intf_desc,
+	(struct usb_descriptor_header *)&acm_ss_in_desc,
+	(struct usb_descriptor_header *)&acm_ss_bulk_comp_desc,
+	(struct usb_descriptor_header *)&acm_ss_out_desc,
+	(struct usb_descriptor_header *)&acm_ss_bulk_comp_desc,
+	NULL,
+};
+
 static inline struct usb_endpoint_descriptor *
-ep_desc(struct usb_gadget *g, struct usb_endpoint_descriptor *hs,
-	struct usb_endpoint_descriptor *fs)
+ep_desc(struct usb_gadget *g, struct usb_endpoint_descriptor *fs,
+	struct usb_endpoint_descriptor *hs,
+	struct usb_endpoint_descriptor *ss)
 {
+	if (gadget_is_superspeed(g) && g->speed >= USB_SPEED_SUPER)
+		return ss;
 	if (gadget_is_dualspeed(g) && g->speed == USB_SPEED_HIGH)
 		return hs;
 	return fs;
@@ -261,6 +307,11 @@ static int acm_bind(struct usb_configuration *c, struct usb_function *f)
 		acm_hs_notify_desc.bEndpointAddress = acm_fs_notify_desc.bEndpointAddress;
 	}
 
+	if (gadget_is_superspeed(gadget)) {
+		acm_ss_in_desc.bEndpointAddress = acm_fs_in_desc.bEndpointAddress;
+		acm_ss_out_desc.bEndpointAddress = acm_fs_out_desc.bEndpointAddress;
+	}
+
 	return 0;
 }
 
@@ -286,12 +337,18 @@ static void acm_tx_complete(struct usb_ep *ep, struct usb_request *req)
 {
 	struct f_acm *f_acm = req->context;
 
+	if (req->status || !f_acm->connected)
+		return;
+
 	f_acm->tx_on = true;
 }
 
 static void acm_rx_complete(struct usb_ep *ep, struct usb_request *req)
 {
 	struct f_acm *f_acm = req->context;
+
+	if (req->status || !f_acm->connected)
+		return;
 
 	buf_push(&f_acm->rx_buf, req->buf, req->actual);
 
@@ -323,31 +380,76 @@ static struct usb_request *acm_start_ep(struct usb_ep *ep, void *complete_cb,
 	return req;
 }
 
+static void acm_stop_data(struct f_acm *f_acm)
+{
+	f_acm->connected = false;
+	f_acm->tx_on = false;
+
+	if (f_acm->ep_out)
+		usb_ep_disable(f_acm->ep_out);
+	if (f_acm->ep_in)
+		usb_ep_disable(f_acm->ep_in);
+
+	if (f_acm->req_out) {
+		free(f_acm->req_out->buf);
+		usb_ep_free_request(f_acm->ep_out, f_acm->req_out);
+		f_acm->req_out = NULL;
+	}
+
+	if (f_acm->req_in) {
+		free(f_acm->req_in->buf);
+		usb_ep_free_request(f_acm->ep_in, f_acm->req_in);
+		f_acm->req_in = NULL;
+	}
+}
+
 static int acm_start_data(struct f_acm *f_acm, struct usb_gadget *gadget)
 {
 	const struct usb_endpoint_descriptor *d;
 	int ret;
 
+	acm_stop_data(f_acm);
+
 	/* EP IN */
-	d = ep_desc(gadget, &acm_hs_in_desc, &acm_fs_in_desc);
+	d = ep_desc(gadget, &acm_fs_in_desc, &acm_hs_in_desc, &acm_ss_in_desc);
+	if (gadget_is_superspeed(gadget) && gadget->speed >= USB_SPEED_SUPER)
+		f_acm->ep_in->comp_desc = &acm_ss_bulk_comp_desc;
+	else
+		f_acm->ep_in->comp_desc = NULL;
 	ret = usb_ep_enable(f_acm->ep_in, d);
 	if (ret)
 		return ret;
 
 	f_acm->req_in = acm_start_ep(f_acm->ep_in, acm_tx_complete, f_acm);
+	if (!f_acm->req_in) {
+		acm_stop_data(f_acm);
+		return -ENOMEM;
+	}
 
 	/* EP OUT */
-	d = ep_desc(gadget, &acm_hs_out_desc, &acm_fs_out_desc);
+	d = ep_desc(gadget, &acm_fs_out_desc, &acm_hs_out_desc, &acm_ss_out_desc);
+	if (gadget_is_superspeed(gadget) && gadget->speed >= USB_SPEED_SUPER)
+		f_acm->ep_out->comp_desc = &acm_ss_bulk_comp_desc;
+	else
+		f_acm->ep_out->comp_desc = NULL;
 	ret = usb_ep_enable(f_acm->ep_out, d);
-	if (ret)
+	if (ret) {
+		acm_stop_data(f_acm);
 		return ret;
+	}
 
 	f_acm->req_out = acm_start_ep(f_acm->ep_out, acm_rx_complete, f_acm);
+	if (!f_acm->req_out) {
+		acm_stop_data(f_acm);
+		return -ENOMEM;
+	}
 
 	/* Start OUT transfer (EP OUT) */
 	ret = usb_ep_queue(f_acm->ep_out, f_acm->req_out, 0);
-	if (ret)
+	if (ret) {
+		acm_stop_data(f_acm);
 		return ret;
+	}
 
 	return 0;
 }
@@ -358,7 +460,12 @@ static int acm_start_ctrl(struct f_acm *f_acm, struct usb_gadget *gadget)
 
 	usb_ep_disable(f_acm->ep_notify);
 
-	d = ep_desc(gadget, &acm_hs_notify_desc, &acm_fs_notify_desc);
+	d = ep_desc(gadget, &acm_fs_notify_desc, &acm_hs_notify_desc,
+		    &acm_hs_notify_desc);
+	if (gadget_is_superspeed(gadget) && gadget->speed >= USB_SPEED_SUPER)
+		f_acm->ep_notify->comp_desc = &acm_ss_notify_comp_desc;
+	else
+		f_acm->ep_notify->comp_desc = NULL;
 	usb_ep_enable(f_acm->ep_notify, d);
 
 	acm_start_ep(f_acm->ep_notify, acm_notify_complete, f_acm);
@@ -370,11 +477,14 @@ static int acm_set_alt(struct usb_function *f, unsigned int intf, unsigned int a
 {
 	struct usb_gadget *gadget = f->config->cdev->gadget;
 	struct f_acm *f_acm = func_to_acm(f);
+	int ret;
 
 	if (intf == f_acm->ctrl_id) {
 		return acm_start_ctrl(f_acm, gadget);
 	} else if (intf == f_acm->data_id) {
-		acm_start_data(f_acm, gadget);
+		ret = acm_start_data(f_acm, gadget);
+		if (ret)
+			return ret;
 		f_acm->connected = true;
 		f_acm->tx_on = true;
 		return 0;
@@ -451,21 +561,12 @@ static void acm_disable(struct usb_function *f)
 {
 	struct f_acm *f_acm = func_to_acm(f);
 
-	usb_ep_disable(f_acm->ep_out);
-	usb_ep_disable(f_acm->ep_in);
-	usb_ep_disable(f_acm->ep_notify);
+	acm_stop_data(f_acm);
 
-	if (f_acm->req_out) {
-		free(f_acm->req_out->buf);
-		usb_ep_free_request(f_acm->ep_out, f_acm->req_out);
-		f_acm->req_out = NULL;
-	}
+	f_acm->handshake_bits = 0;
 
-	if (f_acm->req_in) {
-		free(f_acm->req_in->buf);
-		usb_ep_free_request(f_acm->ep_in, f_acm->req_in);
-		f_acm->req_in = NULL;
-	}
+	if (f_acm->ep_notify)
+		usb_ep_disable(f_acm->ep_notify);
 }
 
 /* static strings, in UTF-8 */
@@ -490,10 +591,18 @@ static void __acm_tx(struct f_acm *f_acm)
 {
 	int len, ret;
 
-	do {
+	if (f_acm->in_tx)
+		return;
+
+	f_acm->in_tx = true;
+
+	while (f_acm->connected && (f_acm->handshake_bits & ACM_CTRL_DTR)) {
 		dm_usb_gadget_handle_interrupts(f_acm->udc);
 
-		if (!(f_acm->handshake_bits & ACM_CTRL_DTR))
+		if (!f_acm->connected || !(f_acm->handshake_bits & ACM_CTRL_DTR))
+			break;
+
+		if (!f_acm->req_in)
 			break;
 
 		if (!f_acm->tx_on)
@@ -504,17 +613,20 @@ static void __acm_tx(struct f_acm *f_acm)
 			break;
 
 		f_acm->req_in->length = len;
+		f_acm->tx_on = false;
 
 		ret = usb_ep_queue(f_acm->ep_in, f_acm->req_in, 0);
-		if (ret)
+		if (ret) {
+			f_acm->tx_on = true;
 			break;
-
-		f_acm->tx_on = false;
+		}
 
 		/* Do not reset the watchdog, if TX is stuck there is probably
 		 * a real issue.
 		 */
-	} while (1);
+	}
+
+	f_acm->in_tx = false;
 }
 
 static bool acm_connected(struct stdio_dev *dev)
@@ -544,6 +656,7 @@ static int acm_add(struct usb_configuration *c)
 	f_acm->usb_function.strings = acm_strings;
 	f_acm->usb_function.descriptors = acm_fs_function;
 	f_acm->usb_function.hs_descriptors = acm_hs_function;
+	f_acm->usb_function.ss_descriptors = acm_ss_function;
 	f_acm->usb_function.setup = acm_setup;
 
 	status = udc_device_get_by_index(0, &f_acm->udc);
