@@ -5,29 +5,28 @@
  * Copyright (c) 2026 AlphaPlus Porting Project
  */
 
+#include <dt-bindings/phy/phy-qcom-qmp.h>
+
 &sdhc_2 {
 	clocks = <&gcc GCC_SDCC2_AHB_CLK>,
 		 <&gcc GCC_SDCC2_APPS_CLK>;
 	clock-names = "iface", "core";
 };
 
-/* The SM8150 USB3/DP combo PHY has no U-Boot driver. */
-&usb_1 {
-	qcom,select-utmi-as-pipe-clk;
-};
-
 &usb_1_dwc3 {
 	dr_mode = "peripheral";
-	maximum-speed = "high-speed";
-	phys = <&usb_1_hsphy>;
-	phy-names = "usb2-phy";
-};
-
-&usb_1_qmpphy {
-	status = "disabled";
+	maximum-speed = "super-speed";
+	phys = <&usb_1_hsphy>,
+	       <&usb_1_qmpphy QMP_USB43DP_USB3_PHY>;
+	phy-names = "usb2-phy", "usb3-phy";
 };
 
 &vreg_l2a_3p1 {
+	regulator-always-on;
+	regulator-boot-on;
+};
+
+&vreg_l3c_1p2 {
 	regulator-always-on;
 	regulator-boot-on;
 };
