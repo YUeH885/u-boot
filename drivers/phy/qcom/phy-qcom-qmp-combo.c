@@ -7,6 +7,7 @@
 #include <dm.h>
 #include <dm/device_compat.h>
 #include <dm/devres.h>
+#include <env.h>
 #include <generic-phy.h>
 #include <reset.h>
 #include <power/regulator.h>
@@ -16,6 +17,7 @@
 #include <linux/delay.h>
 #include <linux/iopoll.h>
 #include <linux/err.h>
+#include <spmi/spmi.h>
 
 #include "phy-qcom-qmp-common.h"
 
@@ -39,6 +41,7 @@
 #define DP_MODE                                 BIT(1) /* enables DP mode */
 
 /* QPHY_V3_DP_COM_TYPEC_CTRL register bits */
+#define SW_PORTSELECT_VAL                       BIT(0)
 #define SW_PORTSELECT_MUX                       BIT(1)
 
 /* PHY slot identifiers for device tree phandle arguments */
@@ -116,6 +119,74 @@ static const struct qmp_phy_init_tbl sm8150_usb3_serdes_tbl[] = {
 	QMP_PHY_INIT_CFG(QSERDES_V4_COM_BIN_VCOCAL_CMP_CODE1_MODE1, 0xca),
 	QMP_PHY_INIT_CFG(QSERDES_V4_COM_BIN_VCOCAL_CMP_CODE2_MODE1, 0x1e),
 	QMP_PHY_INIT_CFG(QSERDES_V4_COM_BIN_VCOCAL_HSCLK_SEL, 0x11),
+};
+
+static const struct qmp_phy_init_tbl sm8150_usb3_tx_tbl[] = {
+	QMP_PHY_INIT_CFG(QSERDES_V4_TX_RES_CODE_LANE_TX, 0x00),
+	QMP_PHY_INIT_CFG(QSERDES_V4_TX_RES_CODE_LANE_RX, 0x00),
+	QMP_PHY_INIT_CFG(QSERDES_V4_TX_LANE_MODE_1, 0xd5),
+	QMP_PHY_INIT_CFG(QSERDES_V4_TX_RCV_DETECT_LVL_2, 0x12),
+	QMP_PHY_INIT_CFG(QSERDES_V4_TX_PI_QEC_CTRL, 0x20),
+};
+
+static const struct qmp_phy_init_tbl sm8150_usb3_rx_tbl[] = {
+	QMP_PHY_INIT_CFG(QSERDES_V4_RX_UCDR_SO_GAIN, 0x05),
+	QMP_PHY_INIT_CFG(QSERDES_V4_RX_UCDR_FASTLOCK_FO_GAIN, 0x2f),
+	QMP_PHY_INIT_CFG(QSERDES_V4_RX_UCDR_SO_SATURATION_AND_ENABLE, 0x7f),
+	QMP_PHY_INIT_CFG(QSERDES_V4_RX_UCDR_FASTLOCK_COUNT_LOW, 0xff),
+	QMP_PHY_INIT_CFG(QSERDES_V4_RX_UCDR_FASTLOCK_COUNT_HIGH, 0x0f),
+	QMP_PHY_INIT_CFG(QSERDES_V4_RX_UCDR_PI_CONTROLS, 0x99),
+	QMP_PHY_INIT_CFG(QSERDES_V4_RX_UCDR_SB2_THRESH1, 0x04),
+	QMP_PHY_INIT_CFG(QSERDES_V4_RX_UCDR_SB2_THRESH2, 0x08),
+	QMP_PHY_INIT_CFG(QSERDES_V4_RX_UCDR_SB2_GAIN1, 0x05),
+	QMP_PHY_INIT_CFG(QSERDES_V4_RX_UCDR_SB2_GAIN2, 0x05),
+	QMP_PHY_INIT_CFG(QSERDES_V4_RX_VGA_CAL_CNTRL1, 0x54),
+	QMP_PHY_INIT_CFG(QSERDES_V4_RX_VGA_CAL_CNTRL2, 0x0e),
+	QMP_PHY_INIT_CFG(QSERDES_V4_RX_RX_EQU_ADAPTOR_CNTRL2, 0x0f),
+	QMP_PHY_INIT_CFG(QSERDES_V4_RX_RX_EQU_ADAPTOR_CNTRL3, 0x4a),
+	QMP_PHY_INIT_CFG(QSERDES_V4_RX_RX_EQU_ADAPTOR_CNTRL4, 0x0a),
+	QMP_PHY_INIT_CFG(QSERDES_V4_RX_RX_IDAC_TSETTLE_LOW, 0xc0),
+	QMP_PHY_INIT_CFG(QSERDES_V4_RX_RX_IDAC_TSETTLE_HIGH, 0x00),
+	QMP_PHY_INIT_CFG(QSERDES_V4_RX_RX_EQ_OFFSET_ADAPTOR_CNTRL1, 0x77),
+	QMP_PHY_INIT_CFG(QSERDES_V4_RX_SIGDET_CNTRL, 0x04),
+	QMP_PHY_INIT_CFG(QSERDES_V4_RX_SIGDET_DEGLITCH_CNTRL, 0x0e),
+	QMP_PHY_INIT_CFG(QSERDES_V4_RX_RX_MODE_00_LOW, 0xbf),
+	QMP_PHY_INIT_CFG(QSERDES_V4_RX_RX_MODE_00_HIGH, 0xbf),
+	QMP_PHY_INIT_CFG(QSERDES_V4_RX_RX_MODE_00_HIGH2, 0x3f),
+	QMP_PHY_INIT_CFG(QSERDES_V4_RX_RX_MODE_00_HIGH3, 0x7f),
+	QMP_PHY_INIT_CFG(QSERDES_V4_RX_RX_MODE_00_HIGH4, 0x94),
+	QMP_PHY_INIT_CFG(QSERDES_V4_RX_RX_MODE_01_LOW, 0xdc),
+	QMP_PHY_INIT_CFG(QSERDES_V4_RX_RX_MODE_01_HIGH, 0xdc),
+	QMP_PHY_INIT_CFG(QSERDES_V4_RX_RX_MODE_01_HIGH2, 0x5c),
+	QMP_PHY_INIT_CFG(QSERDES_V4_RX_RX_MODE_01_HIGH3, 0x0b),
+	QMP_PHY_INIT_CFG(QSERDES_V4_RX_RX_MODE_01_HIGH4, 0xb3),
+	QMP_PHY_INIT_CFG(QSERDES_V4_RX_DFE_EN_TIMER, 0x04),
+	QMP_PHY_INIT_CFG(QSERDES_V4_RX_DFE_CTLE_POST_CAL_OFFSET, 0x38),
+	QMP_PHY_INIT_CFG(QSERDES_V4_RX_AUX_DATA_TCOARSE_TFINE, 0xa0),
+	QMP_PHY_INIT_CFG(QSERDES_V4_RX_DCC_CTRL1, 0x0c),
+	QMP_PHY_INIT_CFG(QSERDES_V4_RX_GM_CAL, 0x1f),
+	QMP_PHY_INIT_CFG(QSERDES_V4_RX_VTH_CODE, 0x10),
+};
+
+static const struct qmp_phy_init_tbl sm8150_usb3_pcs_tbl[] = {
+	/* Lock Det settings */
+	QMP_PHY_INIT_CFG(QPHY_V4_PCS_LOCK_DETECT_CONFIG1, 0xd0),
+	QMP_PHY_INIT_CFG(QPHY_V4_PCS_LOCK_DETECT_CONFIG2, 0x07),
+	QMP_PHY_INIT_CFG(QPHY_V4_PCS_LOCK_DETECT_CONFIG6, 0x13),
+
+	QMP_PHY_INIT_CFG(QPHY_V4_PCS_REFGEN_REQ_CONFIG1, 0x21),
+	QMP_PHY_INIT_CFG(QPHY_V4_PCS_RX_SIGDET_LVL, 0xaa),
+	QMP_PHY_INIT_CFG(QPHY_V4_PCS_CDR_RESET_TIME, 0x0a),
+	QMP_PHY_INIT_CFG(QPHY_V4_PCS_ALIGN_DETECT_CONFIG1, 0x88),
+	QMP_PHY_INIT_CFG(QPHY_V4_PCS_ALIGN_DETECT_CONFIG2, 0x13),
+	QMP_PHY_INIT_CFG(QPHY_V4_PCS_PCS_TX_RX_CONFIG, 0x0c),
+	QMP_PHY_INIT_CFG(QPHY_V4_PCS_EQ_CONFIG1, 0x4b),
+	QMP_PHY_INIT_CFG(QPHY_V4_PCS_EQ_CONFIG5, 0x10),
+};
+
+static const struct qmp_phy_init_tbl sm8150_usb3_pcs_usb_tbl[] = {
+	QMP_PHY_INIT_CFG(QPHY_V4_PCS_USB3_LFPS_DET_HIGH_COUNT_VAL, 0xf8),
+	QMP_PHY_INIT_CFG(QPHY_V4_PCS_USB3_RXEQTRAINING_DFE_TIME_S2, 0x07),
 };
 
 static const struct qmp_phy_init_tbl sm8250_usb3_tx_tbl[] = {
@@ -238,6 +309,8 @@ struct qmp_combo {
 	struct udevice **vregs;
 	int num_vregs;
 	const struct qmp_phy_cfg *cfg;
+	int orientation;
+	int configured_orientation;
 };
 
 static inline void qphy_setbits(void __iomem *base, u32 offset, u32 val)
@@ -268,13 +341,16 @@ static int qmp_combo_com_exit(struct qmp_combo *qmp)
 {
 	int i, ret;
 
+	/* Power down common block */
+	qphy_clrbits(qmp->com, QPHY_V3_DP_COM_POWER_DOWN_CTRL, SW_PWRDN);
+
 	for (i = 0; i < qmp->num_clks; i++)
 		clk_disable(&qmp->clks[i]);
 
 	reset_assert_bulk(&qmp->resets);
 
 	for (i = qmp->num_vregs - 1; i >= 0; i--) {
-		ret = regulator_set_enable(qmp->vregs[i], false);
+		ret = regulator_set_enable_if_allowed(qmp->vregs[i], false);
 		if (ret)
 			dev_warn(qmp->dev, "failed to disable %s: %d\n",
 				 qmp->cfg->vreg_list[i], ret);
@@ -283,10 +359,59 @@ static int qmp_combo_com_exit(struct qmp_combo *qmp)
 	return 0;
 }
 
+#define PM8150B_USID			2
+#define PM8150B_TYPEC_PID		0x15
+#define PM8150B_TYPEC_MISC_STATUS	0x0b
+#define PM8150B_TYPEC_CC_ATTACHED	BIT(0)
+#define PM8150B_TYPEC_CC_ORIENTATION	BIT(1)
+
+static int qmp_combo_get_orientation(struct qmp_combo *qmp)
+{
+	const char *mode = env_get("usb_orientation");
+	struct udevice *bus;
+	ofnode node;
+	u32 usid = PM8150B_USID;
+	u32 pid = PM8150B_TYPEC_PID;
+	int ret;
+
+	if (mode) {
+		if (!strcmp(mode, "reverse") || !strcmp(mode, "1"))
+			return 1;
+		if (!strcmp(mode, "normal") || !strcmp(mode, "0"))
+			return 0;
+	}
+
+	if (!CONFIG_IS_ENABLED(SPMI_MSM) && !CONFIG_IS_ENABLED(DM_SPMI))
+		return 0;
+
+	node = ofnode_by_compatible(ofnode_null(), "qcom,pm8150b-typec");
+	if (ofnode_valid(node)) {
+		u32 base;
+		ofnode parent = ofnode_get_parent(node);
+
+		if (!ofnode_read_u32_index(parent, "reg", 0, &usid)) {
+			if (!ofnode_read_u32_index(node, "reg", 0, &base))
+				pid = base >> 8;
+		}
+	}
+
+	ret = uclass_get_device(UCLASS_SPMI, 0, &bus);
+	if (ret)
+		return 0;
+
+	ret = spmi_reg_read(bus, usid, pid, PM8150B_TYPEC_MISC_STATUS);
+	if (ret < 0)
+		return 0;
+
+	if (!(ret & PM8150B_TYPEC_CC_ATTACHED))
+		return -ENODEV;
+
+	return (ret & PM8150B_TYPEC_CC_ORIENTATION) ? 1 : 0;
+}
+
 static int qmp_combo_com_init(struct qmp_combo *qmp)
 {
 	void __iomem *com = qmp->com;
-	void __iomem *pcs = qmp->pcs;
 	u32 val;
 	int ret, i;
 
@@ -307,7 +432,7 @@ static int qmp_combo_com_init(struct qmp_combo *qmp)
 		if (ret) {
 			dev_err(qmp->dev, "Failed to enable regulator %d: %d\n", i, ret);
 			while (--i >= 0)
-				regulator_set_enable(qmp->vregs[i], false);
+				regulator_set_enable_if_allowed(qmp->vregs[i], false);
 			reset_assert_bulk(&qmp->resets);
 			return ret;
 		}
@@ -320,7 +445,7 @@ static int qmp_combo_com_init(struct qmp_combo *qmp)
 			while (--i >= 0)
 				clk_disable(&qmp->clks[i]);
 			for (i = qmp->num_vregs - 1; i >= 0; i--)
-				regulator_set_enable(qmp->vregs[i], false);
+				regulator_set_enable_if_allowed(qmp->vregs[i], false);
 			reset_assert_bulk(&qmp->resets);
 			return ret;
 		}
@@ -332,7 +457,14 @@ static int qmp_combo_com_init(struct qmp_combo *qmp)
 		     SW_DPPHY_RESET_MUX | SW_DPPHY_RESET |
 		     SW_USB3PHY_RESET_MUX | SW_USB3PHY_RESET);
 
+	ret = qmp_combo_get_orientation(qmp);
+	if (ret >= 0)
+		qmp->orientation = ret;
+
 	val = SW_PORTSELECT_MUX;
+	if (qmp->orientation)
+		val |= SW_PORTSELECT_VAL;
+
 	writel(val, com + QPHY_V3_DP_COM_TYPEC_CTRL);
 
 	writel(USB3_MODE | DP_MODE, com + QPHY_V3_DP_COM_PHY_MODE_CTRL);
@@ -344,8 +476,6 @@ static int qmp_combo_com_init(struct qmp_combo *qmp)
 	qphy_clrbits(com, QPHY_V3_DP_COM_SWI_CTRL, 0x03);
 
 	qphy_clrbits(com, QPHY_V3_DP_COM_SW_RESET, SW_RESET);
-
-	qphy_setbits(pcs, QPHY_V4_PCS_POWER_DOWN_CONTROL, SW_PWRDN);
 
 	return 0;
 }
@@ -362,6 +492,8 @@ static int qmp_combo_usb_power_on(struct qmp_combo *qmp)
 	void __iomem *pcs_usb = qmp->pcs_usb;
 	u32 val;
 	int ret;
+
+	qphy_setbits(pcs, QPHY_V4_PCS_POWER_DOWN_CONTROL, SW_PWRDN);
 
 	/* Serdes configuration */
 	qmp_configure(qmp->dev, serdes, cfg->serdes_tbl, cfg->serdes_tbl_num);
@@ -405,37 +537,16 @@ static int qmp_combo_usb_power_on(struct qmp_combo *qmp)
 	if (ret) {
 		printf("QMP USB3 PHY initialization timeout\n");
 		clk_disable(qmp->pipe_clk);
+		qmp->configured_orientation = -1;
 		return ret;
 	}
 
+	qmp->configured_orientation = qmp->orientation;
 	return 0;
 }
 
-static int qmp_combo_power_on(struct phy *phy)
+static int qmp_combo_usb_power_off(struct qmp_combo *qmp)
 {
-	struct qmp_combo *qmp = dev_get_priv(phy->dev);
-	int ret;
-
-	/* Initialize common block */
-	ret = qmp_combo_com_init(qmp);
-	if (ret)
-		return ret;
-
-	/* Initialize USB3-specific configuration */
-	ret = qmp_combo_usb_power_on(qmp);
-	if (ret) {
-		qmp_combo_com_exit(qmp);
-		return ret;
-	}
-
-	return 0;
-}
-
-static int qmp_combo_power_off(struct phy *phy)
-{
-	struct qmp_combo *qmp = dev_get_priv(phy->dev);
-	void __iomem *com = qmp->com;
-
 	clk_disable(qmp->pipe_clk);
 
 	/* PHY reset */
@@ -448,10 +559,78 @@ static int qmp_combo_power_off(struct phy *phy)
 	/* Put PHY into POWER DOWN state: active low */
 	qphy_clrbits(qmp->pcs, QPHY_V4_PCS_POWER_DOWN_CONTROL, SW_PWRDN);
 
-	/* Power down common block */
-	qphy_clrbits(com, QPHY_V3_DP_COM_POWER_DOWN_CTRL, SW_PWRDN);
+	qmp->configured_orientation = -1;
+
+	return 0;
+}
+
+static int qmp_combo_init(struct phy *phy)
+{
+	struct qmp_combo *qmp = dev_get_priv(phy->dev);
+
+	return qmp_combo_com_init(qmp);
+}
+
+static int qmp_combo_exit(struct phy *phy)
+{
+	struct qmp_combo *qmp = dev_get_priv(phy->dev);
 
 	return qmp_combo_com_exit(qmp);
+}
+
+static int qmp_combo_power_on(struct phy *phy)
+{
+	struct qmp_combo *qmp = dev_get_priv(phy->dev);
+
+	return qmp_combo_usb_power_on(qmp);
+}
+
+static int qmp_combo_power_off(struct phy *phy)
+{
+	struct qmp_combo *qmp = dev_get_priv(phy->dev);
+
+	return qmp_combo_usb_power_off(qmp);
+}
+
+static int qmp_combo_configure(struct phy *phy, void *params)
+{
+	struct qmp_combo *qmp = dev_get_priv(phy->dev);
+	int orientation;
+	int ret;
+
+	if (params)
+		orientation = *(int *)params;
+	else
+		orientation = qmp_combo_get_orientation(qmp);
+
+	if (orientation < 0 || orientation == qmp->configured_orientation)
+		return 0;
+
+	qmp_combo_usb_power_off(qmp);
+	ret = qmp_combo_com_exit(qmp);
+	if (ret) {
+		qmp->configured_orientation = -1;
+		return ret;
+	}
+
+	qmp->orientation = orientation;
+
+	ret = qmp_combo_com_init(qmp);
+	if (ret) {
+		qmp->configured_orientation = -1;
+		return ret;
+	}
+
+	ret = qmp_combo_usb_power_on(qmp);
+	if (ret) {
+		qmp->configured_orientation = -1;
+		qmp_combo_usb_power_off(qmp);
+		qmp_combo_com_exit(qmp);
+		return ret;
+	}
+
+	qmp->configured_orientation = orientation;
+	return 1;
 }
 
 static int qmp_combo_reset_init(struct qmp_combo *qmp)
@@ -580,6 +759,8 @@ static int qmp_combo_probe(struct udevice *dev)
 		return -EINVAL;
 	}
 
+	qmp->configured_orientation = -1;
+
 	ret = qmp_combo_parse_dt(qmp);
 
 	return ret;
@@ -603,6 +784,24 @@ static const struct qmp_phy_cfg sc7280_usb3dpphy_cfg = {
 	.has_pwrdn_delay	= true,
 };
 
+static const struct qmp_phy_cfg sm8150_usb3dpphy_cfg = {
+	.offsets		= &qmp_combo_offsets_v3,
+	.serdes_tbl		= sm8150_usb3_serdes_tbl,
+	.serdes_tbl_num		= ARRAY_SIZE(sm8150_usb3_serdes_tbl),
+	.tx_tbl			= sm8150_usb3_tx_tbl,
+	.tx_tbl_num		= ARRAY_SIZE(sm8150_usb3_tx_tbl),
+	.rx_tbl			= sm8150_usb3_rx_tbl,
+	.rx_tbl_num		= ARRAY_SIZE(sm8150_usb3_rx_tbl),
+	.pcs_tbl		= sm8150_usb3_pcs_tbl,
+	.pcs_tbl_num		= ARRAY_SIZE(sm8150_usb3_pcs_tbl),
+	.pcs_usb_tbl		= sm8150_usb3_pcs_usb_tbl,
+	.pcs_usb_tbl_num	= ARRAY_SIZE(sm8150_usb3_pcs_usb_tbl),
+	.vreg_list		= qmp_phy_vreg_l,
+	.num_vregs		= ARRAY_SIZE(qmp_phy_vreg_l),
+
+	.has_pwrdn_delay	= true,
+};
+
 static int qmp_combo_xlate(struct phy *phy, struct ofnode_phandle_args *args)
 {
 	if (args->args_count != 1) {
@@ -620,8 +819,11 @@ static int qmp_combo_xlate(struct phy *phy, struct ofnode_phandle_args *args)
 }
 
 static struct phy_ops qmp_combo_ops = {
-	.init = qmp_combo_power_on,
-	.exit = qmp_combo_power_off,
+	.init = qmp_combo_init,
+	.exit = qmp_combo_exit,
+	.power_on = qmp_combo_power_on,
+	.power_off = qmp_combo_power_off,
+	.configure = qmp_combo_configure,
 	.of_xlate = qmp_combo_xlate,
 };
 
@@ -629,6 +831,10 @@ static const struct udevice_id qmp_combo_ids[] = {
 	{
 		.compatible = "qcom,sc7280-qmp-usb3-dp-phy",
 		.data = (ulong)&sc7280_usb3dpphy_cfg,
+	},
+	{
+		.compatible = "qcom,sm8150-qmp-usb3-dp-phy",
+		.data = (ulong)&sm8150_usb3dpphy_cfg,
 	},
 	{ }
 };
