@@ -12,6 +12,7 @@
 #include <asm/gpio.h>
 #include <dm/device_compat.h>
 #include <dm/lists.h>
+#include <generic-phy.h>
 #include <linux/delay.h>
 #include <linux/string.h>
 #include <linux/usb/gadget.h>
@@ -230,6 +231,22 @@ static int dwc3_gadget_handle_interrupts(struct udevice *dev)
 {
 	struct dwc3_generic_priv *priv = dev_get_priv(dev);
 	struct dwc3 *dwc3 = &priv->dwc3;
+	int i, changed = 0;
+
+	if (dwc3->gadget.speed != USB_SPEED_SUPER) {
+		for (i = 0; i < priv->phys.count; i++) {
+			if (generic_phy_configure(&priv->phys.phys[i], NULL) == 1) {
+				changed = 1;
+				break;
+			}
+		}
+
+		if (changed) {
+			dwc3_gadget_run_stop(dwc3, 0, false);
+			udelay(100);
+			dwc3_gadget_run_stop(dwc3, 1, false);
+		}
+	}
 
 	dwc3_gadget_uboot_handle_interrupt(dwc3);
 

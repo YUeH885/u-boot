@@ -441,7 +441,12 @@ static int dwc3_gadget_set_ep_config(struct dwc3 *dwc, struct dwc3_ep *dep,
 
 	/* Burst size is only needed in SuperSpeed mode */
 	if (dwc->gadget.speed == USB_SPEED_SUPER) {
-		u32 burst = dep->endpoint.maxburst - 1;
+		u32 burst = 0;
+
+		if (comp_desc)
+			burst = comp_desc->bMaxBurst;
+		else if (dep->endpoint.maxburst)
+			burst = dep->endpoint.maxburst - 1;
 
 		params.param0 |= DWC3_DEPCFG_BURST_SIZE(burst);
 	}
@@ -541,6 +546,7 @@ static int __dwc3_gadget_ep_enable(struct dwc3_ep *dep,
 
 		dep->endpoint.desc = desc;
 		dep->comp_desc = comp_desc;
+		dep->endpoint.maxburst = comp_desc ? comp_desc->bMaxBurst + 1 : 1;
 		dep->type = usb_endpoint_type(desc);
 		dep->flags |= DWC3_EP_ENABLED;
 
@@ -1393,7 +1399,7 @@ static int dwc3_gadget_set_selfpowered(struct usb_gadget *g,
 	return 0;
 }
 
-static int dwc3_gadget_run_stop(struct dwc3 *dwc, int is_on, int suspend)
+int dwc3_gadget_run_stop(struct dwc3 *dwc, int is_on, int suspend)
 {
 	u32			reg;
 	u32			timeout = 2000;

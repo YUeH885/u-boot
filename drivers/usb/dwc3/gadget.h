@@ -118,4 +118,6 @@ static inline void dwc3_gadget_dctl_write_safe(struct dwc3 *dwc, u32 value)
 	dwc3_writel(dwc->regs, DWC3_DCTL, value);
 }
 
+int dwc3_gadget_run_stop(struct dwc3 *dwc, int is_on, int suspend);
+
 #endif /* __DRIVERS_USB_DWC3_GADGET_H */
